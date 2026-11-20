@@ -561,13 +561,33 @@ internal static class Program
         if (error is not null) throw new InvalidOperationException("Could not copy the link to the Windows clipboard.", error);
     }
 
+    private static readonly string[] AllowedUploadExtensions = [".txt", ".csv", ".log", ".md"];
+
+    internal static string UploadFileFilter =>
+        $"Supported files ({string.Join(", ", AllowedUploadExtensions)})|{string.Join(";", AllowedUploadExtensions.Select(extension => "*" + extension))}";
+
+    internal static void ValidateUploadExtension(string path)
+    {
+        if (!AllowedUploadExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Unsupported file type for {Path.GetFileName(path)}. Allowed extensions: {string.Join(", ", AllowedUploadExtensions)}.");
+    }
+
     private static async Task<(string MessageId, Config Config)> SendFile(string inputPath, IProgress<int>? progress = null)
     {
         var path = Path.GetFullPath(inputPath);
+        ValidateUploadExtension(path);
         if (!File.Exists(path)) throw new FileNotFoundException("File not found.", path);
-        var fileLength = new FileInfo(path).Length;
+        await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var fileLength = source.Length;
         if (fileLength > 20 * 1024 * 1024)
             throw new InvalidOperationException($"File is too large ({fileLength / 1024d / 1024d:0.1} MB). Zoom allows up to 20 MB per file.");
+        var header = new byte[4];
+        var headerLength = await source.ReadAtLeastAsync(header, header.Length, false);
+        var signature = header.AsSpan(0, headerLength);
+        if (signature.StartsWith("MZ"u8) || signature.StartsWith("\u007fELF"u8))
+            throw new InvalidOperationException($"Executable content is not allowed in uploads: {Path.GetFileName(path)}.");
+
         var config = LoadConfig();
         if (config.ChannelId is null && config.Contact is null)
             throw new InvalidOperationException("No destination configured.");
@@ -577,7 +597,7 @@ internal static class Program
         HttpRequestMessage Factory(Uri uri)
         {
             var form = new MultipartFormDataContent();
-            var file = new ProgressFileContent(path, progress);
+            var file = new ProgressFileContent(source, progress);
             file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
             var safeFileName = Path.GetFileName(path).Replace('"', '_').Replace('\r', '_').Replace('\n', '_');
             file.Headers.TryAddWithoutValidation("Content-Disposition",

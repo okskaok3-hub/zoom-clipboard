@@ -233,7 +233,7 @@ internal sealed class DashboardForm : Form
         signInShortcut.Click += (_, _) => ShowPage(3);
         upload.Click += async (_, _) =>
         {
-            using var picker = new OpenFileDialog { Title = "Select files to upload", Multiselect = true };
+            using var picker = new OpenFileDialog { Title = "Select files to upload", Filter = Program.UploadFileFilter, Multiselect = true };
             if (picker.ShowDialog(this) == DialogResult.OK) await UploadFiles(picker.FileNames);
         };
         drop.DragEnter += (_, e) => { var ok = !busy && channels.SelectedItem is Channel && e.Data?.GetDataPresent(DataFormats.FileDrop) == true; e.Effect = ok ? DragDropEffects.Copy : DragDropEffects.None; if (ok) drop.BackColor = Color.FromArgb(224, 235, 255); };
@@ -353,6 +353,8 @@ internal sealed class DashboardForm : Form
         if (paths.Length == 0) return;
         await Run(async () =>
         {
+            foreach (var path in paths) Program.ValidateUploadExtension(path);
+
             var count = 0;
             foreach (var path in paths)
             {

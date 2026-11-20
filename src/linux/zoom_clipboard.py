@@ -22,6 +22,7 @@ ORIGIN = f"http://127.0.0.1:{PORT}"
 REDIRECT = ORIGIN + "/callback"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "zoom-clipboard"
 MAX_FILE = 20 * 1024 * 1024
+UPLOAD_EXTENSIONS = (".txt", ".csv", ".log", ".md")
 
 
 class ZoomError(Exception):
@@ -206,6 +207,10 @@ class App:
         if len(content) > MAX_FILE:
             raise ZoomError("Files must be no larger than 20 MB.")
         safe_name = Path(filename).name.replace('"', "_").replace("\r", "_").replace("\n", "_")
+        if not safe_name.lower().endswith(UPLOAD_EXTENSIONS):
+            raise ZoomError(f"Unsupported file type for {safe_name}. Allowed extensions: {', '.join(UPLOAD_EXTENSIONS)}.")
+        if content.startswith((b"MZ", b"\x7fELF")):
+            raise ZoomError(f"Executable content is not allowed in uploads: {safe_name}.")
         boundary = "ZoomClipboard" + secrets.token_hex(16)
         body = (f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="{safe_name}"\r\n'
                 'Content-Type: application/octet-stream\r\n\r\n').encode() + content
